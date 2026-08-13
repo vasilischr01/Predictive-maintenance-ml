@@ -20,5 +20,8 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Download dataset
+        run: python -m src.data.download
+
       - name: Run tests
         run: pytest -q
