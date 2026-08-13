@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+
+data/raw/*.csv
+
+artifacts/*.joblib
+artifacts/*.json
+
+mlruns/
+mlartifacts/
+mlflow.db
+
+.env
