@@ -292,15 +292,18 @@ Critical ML dependencies are pinned and the complete application can be executed
 
 ## Future Improvements
 
-Potential extensions include:
-
-- automated model retraining after drift detection
-- CI/CD pipeline with GitHub Actions
-- model registry and promotion workflow
-- production metrics and alerting
-- cloud deployment
-- time-series-aware predictive maintenance models
+- Automated model retraining pipeline
+- Model registry and versioning
+- Cloud deployment
+- Production-grade monitoring and alerting
+- Automated drift-triggered retraining
+- Hyperparameter optimization
+- Additional predictive models and ensemble methods
+- Database-backed prediction logging
+- Web dashboard for model monitoring
 
 ## License
 
-This project is intended for educational and portfolio purposes.
+This project is licensed under the MIT License.
+
+See the `LICENSE` file for details.
