@@ -23,5 +23,16 @@ jobs:
       - name: Download dataset
         run: python -m src.data.download
 
+      - name: Compile Python modules
+        run: |
+          python -m py_compile src/training/train.py
+          python -m py_compile src/evaluation/model_benchmark.py
+          python -m py_compile src/explainability/explain.py
+          python -m py_compile src/monitoring/drift.py
+          python -m py_compile src/api/main.py
+
       - name: Run tests
         run: pytest -q
+
+      - name: Build Docker image
+        run: docker build -t predictive-maintenance-api .
