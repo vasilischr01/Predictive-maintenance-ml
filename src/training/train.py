@@ -26,7 +26,6 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from src.data.validate import validate_dataframe
 
-
 DATA_PATH = Path("data/raw/ai4i2020.csv")
 
 MODEL_PATH = Path("artifacts/model.joblib")
@@ -385,10 +384,10 @@ def train(
     payload = {
         "model": "HistGradientBoostingClassifier",
         "random_state": RANDOM_STATE,
-        "dataset_rows": int(len(df)),
-        "train_rows": int(len(X_train)),
-        "validation_rows": int(len(X_val)),
-        "test_rows": int(len(X_test)),
+        "dataset_rows": len(df),
+        "train_rows": len(X_train),
+        "validation_rows": len(X_val),
+        "test_rows": len(X_test),
         "positive_rate": {
             "train": round(
                 float(y_train.mean()),

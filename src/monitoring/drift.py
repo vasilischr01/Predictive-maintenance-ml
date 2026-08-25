@@ -7,7 +7,6 @@ import numpy as np
 import pandas as pd
 from scipy.stats import ks_2samp
 
-
 DATA_PATH = Path("data/raw/ai4i2020.csv")
 OUTPUT_PATH = Path("artifacts/drift_report.json")
 
@@ -143,12 +142,8 @@ def detect_numeric_drift(
         results.append(
             {
                 "feature": feature,
-                "reference_count": int(
-                    len(reference_values)
-                ),
-                "current_count": int(
-                    len(current_values)
-                ),
+                "reference_count": len(reference_values),
+                "current_count": len(current_values),
                 "ks_statistic": round(
                     float(statistic),
                     4,
@@ -218,21 +213,13 @@ def build_drift_report(
         "ks_statistic_threshold": (
             KS_STATISTIC_THRESHOLD
         ),
-        "reference_rows": int(
-            len(reference)
-        ),
-        "current_rows": int(
-            len(current)
-        ),
+        "reference_rows": len(reference),
+        "current_rows": len(current),
         "drift_detected": bool(
             drifted_features
         ),
-        "drifted_feature_count": int(
-            len(drifted_features)
-        ),
-        "monitored_feature_count": int(
-            len(NUMERIC_FEATURES)
-        ),
+        "drifted_feature_count": len(drifted_features),
+        "monitored_feature_count": len(NUMERIC_FEATURES),
         "drift_fraction": round(
             float(drift_fraction),
             4,

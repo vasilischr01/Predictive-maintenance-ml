@@ -22,7 +22,22 @@ The project covers the complete ML lifecycle: data validation, leakage-free trai
 - Controlled drift-injection experiment
 - Reproducible Docker build that trains the production model during image creation
 - Automated GitHub Actions CI
-- **19 automated tests**
+- API security headers and sanitized errors
+- 64 KiB request-size limit
+- 60 requests / 60 seconds / client-IP rate limiting
+- **27 automated tests**
+
+---
+
+## Engineering Validation
+
+```text
+27 automated tests passed
+Ruff: All checks passed
+Security controls covered by API tests
+Leakage-free train/validation/test evaluation
+Docker build validated
+```
 
 ---
 
@@ -60,8 +75,6 @@ artifacts/selected_threshold.json
 
 and loaded dynamically by the inference API.
 
-It is not hardcoded into the serving layer.
-
 ### Untouched Test Performance
 
 | Metric | Value |
@@ -75,18 +88,16 @@ It is not hardcoded into the serving layer.
 
 ### Confusion Matrix
 
-| | Predicted Normal | Predicted Failure |
+|  | Predicted Normal | Predicted Failure |
 |---|---:|---:|
 | Actual Normal | **1436** | **13** |
 | Actual Failure | **6** | **45** |
 
-The final operating point identifies **45 of 51 machine failures**, corresponding to a recall of **88.24%**, while producing 13 false-positive alerts.
+The final operating point identifies **45 of 51 machine failures**, corresponding to **88.24% recall**, while producing 13 false-positive alerts.
 
 ---
 
 ## Model Benchmark
-
-Rather than selecting a model a priori, the project evaluates several candidate classifiers using the same deterministic training and validation split.
 
 The benchmark compares:
 
@@ -96,21 +107,13 @@ The benchmark compares:
 
 Model selection uses **validation PR-AUC as the primary metric**, followed by validation F1 and recall as tie-breakers.
 
-The test set is not used during model selection.
-
 | Model | Selected Threshold | Validation Precision | Validation Recall | Validation F1 | Validation ROC-AUC | Validation PR-AUC |
 |---|---:|---:|---:|---:|---:|---:|
 | Logistic Regression | 0.88 | 0.3725 | 0.3725 | 0.3725 | 0.8402 | 0.3083 |
 | Random Forest | 0.35 | 0.7115 | 0.7255 | 0.7184 | **0.9366** | 0.7164 |
 | **HistGradientBoosting** | **0.10** | **0.7115** | **0.7255** | **0.7184** | 0.9295 | **0.7453** |
 
-HistGradientBoosting achieved the highest validation PR-AUC and was therefore promoted to the production model.
-
-The complete benchmark is written to:
-
-```text
-artifacts/model_benchmark.json
-```
+HistGradientBoosting achieved the highest validation PR-AUC and was selected for production.
 
 Run the benchmark with:
 
@@ -122,43 +125,35 @@ python -m src.evaluation.model_benchmark
 
 ## Evaluation Methodology
 
-The project explicitly separates model training, model selection, threshold selection, and final evaluation.
-
 ```text
 Full Dataset
-     |
-     v
+    |
+    v
 Stratified Split
-     |
-     +--------------------+
-     |                    |
-     v                    v
-70% Training         15% Validation
-     |                    |
-     |                    +--> Model comparison
-     |                    |
-     |                    +--> Threshold optimization
-     |
-     +-----------------------------+
-                                   |
-                                   v
-                             Selection locked
-                                   |
-                                   v
-                              15% Test Set
-                                   |
-                                   v
+    |
+    +--------------------+
+    |                    |
+    v                    v
+70% Training        15% Validation
+    |                    |
+    |                    +--> Model comparison
+    |                    +--> Threshold optimization
+    |
+    +-----------------------------+
+                                  |
+                                  v
+                           Selection locked
+                                  |
+                                  v
+                            15% Test Set
+                                  |
+                                  v
                          Final evaluation only
 ```
 
-This prevents the test set from influencing either:
+This prevents the test set from influencing model or threshold selection.
 
-- model selection
-- threshold selection
-
-and provides a more reliable estimate of final model performance.
-
-For the imbalanced machine-failure target, the evaluation reports:
+Metrics reported:
 
 - Precision
 - Recall
@@ -167,116 +162,51 @@ For the imbalanced machine-failure target, the evaluation reports:
 - PR-AUC
 - Confusion matrix
 
-PR-AUC is included because machine failures represent only a small fraction of the dataset.
+PR-AUC is emphasized because machine failures are rare.
 
 ---
 
 ## Architecture
 
 ```text
-                         Raw Machine Data
-                                |
-                                v
-                         Data Validation
-                                |
-                                v
-                  Stratified Train / Val / Test
-                                |
-                +---------------+---------------+
-                |                               |
-                v                               v
-         Model Benchmark                Training Pipeline
-   Logistic Regression                  - Median imputation
-   Random Forest                        - Standard scaling
-   HistGradientBoosting                 - One-hot encoding
-                |                               |
-                v                               v
-      Validation Model Selection    HistGradientBoosting
-                |                               |
-                +---------------+---------------+
-                                |
-                                v
-                   Validation Threshold Search
-                                |
-                                v
+Raw Machine Data
+      |
+      v
+Data Validation
+      |
+      v
+Stratified Train / Validation / Test
+      |
+      +----------------------+----------------------+
+      |                                             |
+      v                                             v
+Model Benchmark                              Training Pipeline
+LR / RF / HGB                               Preprocessing + HGB
+      |                                             |
+      +----------------------+----------------------+
+                             |
+                             v
+                  Validation Threshold Search
+                             |
+                             v
                   Production Model + Threshold
-                                |
-              +-----------------+-----------------+
-              |                                   |
-              v                                   v
-        MLflow Tracking                     FastAPI Service
-                                              /health
-                                              /predict
-                                              /monitor/drift
-                                                   |
-                           +-----------------------+----------------------+
-                           |                                              |
-                           v                                              v
-                   SHAP Explainability                            Drift Monitoring
+                             |
+                 +-----------+-----------+
+                 |                       |
+                 v                       v
+             MLflow                  FastAPI
+                                         |
+                              +----------+----------+
+                              |                     |
+                              v                     v
+                            SHAP              Drift Monitoring
 ```
-
----
-
-## Project Structure
-
-```text
-predictive-maintenance-ml/
-├── .github/
-│   └── workflows/
-│       └── ci.yml
-│
-├── artifacts/
-│   ├── model.joblib
-│   ├── metrics.json
-│   ├── selected_threshold.json
-│   ├── model_benchmark.json
-│   └── drift_report.json
-│
-├── data/
-│   └── raw/
-│       └── ai4i2020.csv
-│
-├── src/
-│   ├── api/
-│   │   └── main.py
-│   │
-│   ├── data/
-│   │   ├── download.py
-│   │   └── validate.py
-│   │
-│   ├── evaluation/
-│   │   └── model_benchmark.py
-│   │
-│   ├── explainability/
-│   │   └── explain.py
-│   │
-│   ├── monitoring/
-│   │   └── drift.py
-│   │
-│   └── training/
-│       ├── train.py
-│       └── threshold_analysis.py
-│
-├── tests/
-│   ├── test_api.py
-│   ├── test_drift.py
-│   ├── test_training.py
-│   └── test_validation.py
-│
-├── Dockerfile
-├── Makefile
-├── pyproject.toml
-├── requirements.txt
-└── README.md
-```
-
-Generated model and evaluation artifacts are intentionally kept out of version control and can be reproduced by the training pipeline.
 
 ---
 
 ## Training
 
-Train the production model:
+Run:
 
 ```bash
 python -m src.training.train
@@ -284,15 +214,15 @@ python -m src.training.train
 
 The training pipeline:
 
-1. validates the dataset,
-2. creates deterministic stratified train/validation/test splits,
-3. fits the production HistGradientBoosting pipeline,
-4. evaluates candidate thresholds on validation data,
-5. selects the validation-optimal threshold,
-6. evaluates the locked model and threshold on the untouched test set,
-7. serializes the trained pipeline,
-8. persists metrics and threshold metadata,
-9. logs the experiment to MLflow.
+1. validates the dataset
+2. creates deterministic stratified train/validation/test splits
+3. fits the HistGradientBoosting pipeline
+4. evaluates candidate thresholds on validation data
+5. selects the validation-optimal threshold
+6. evaluates the locked model and threshold on the untouched test set
+7. serializes the trained pipeline
+8. persists metrics and threshold metadata
+9. logs the experiment to MLflow
 
 Generated artifacts include:
 
@@ -306,8 +236,6 @@ artifacts/selected_threshold.json
 
 ## Preprocessing Pipeline
 
-The model receives the following input features.
-
 ### Categorical
 
 - Machine type
@@ -320,63 +248,47 @@ The model receives the following input features.
 - Torque
 - Tool wear
 
-The scikit-learn pipeline performs:
-
-### Numerical preprocessing
+Numerical preprocessing:
 
 ```text
 Median Imputation
-        |
-        v
+      |
+      v
 Standard Scaling
 ```
 
-### Categorical preprocessing
+Categorical preprocessing:
 
 ```text
 Most-Frequent Imputation
-        |
-        v
+      |
+      v
 One-Hot Encoding
 ```
 
-The fitted preprocessing pipeline and classifier are serialized together, ensuring that training and inference use identical transformations.
+The preprocessing pipeline and classifier are serialized together.
 
 ---
 
 ## API
 
-Start the API locally:
+Start locally:
 
 ```bash
 uvicorn src.api.main:app --reload
 ```
 
-Interactive Swagger documentation:
+Swagger:
 
 ```text
 http://127.0.0.1:8000/docs
 ```
 
-### Health Check
+### Health
 
 ```http
 GET /health
 ```
-
-Example response:
-
-```json
-{
-  "status": "ok",
-  "model_available": true,
-  "threshold_available": true
-}
-```
-
-The health endpoint checks the availability of both the trained model and validation-selected threshold artifact.
-
----
 
 ### Prediction
 
@@ -397,82 +309,105 @@ Example request:
 }
 ```
 
-The response contains:
+The response includes:
 
 - failure probability
 - binary failure decision
-- validation-selected operating threshold
+- validation-selected threshold
 - top SHAP feature contributions
 
-The prediction decision is calculated as:
-
-```text
-predicted_failure =
-    failure_probability >= selected_threshold
-```
-
-The threshold is loaded from `artifacts/selected_threshold.json` rather than being hardcoded into the API.
-
----
-
-## Explainability
-
-Predictions include feature-level explanations generated with SHAP.
-
-The explainability layer:
-
-1. uses the fitted preprocessing pipeline,
-2. transforms the incoming observation,
-3. computes SHAP values for the HistGradientBoosting classifier,
-4. ranks features by absolute contribution magnitude,
-5. returns the top contributions with the prediction.
-
-The model pipeline and SHAP explainer are cached after first use to avoid repeatedly loading the serialized model and rebuilding the explainer for every API request.
-
-Example explanation structure:
-
-```json
-[
-  {
-    "feature": "Torque",
-    "shap_value": 0.42
-  }
-]
-```
-
-Positive and negative SHAP values describe how individual transformed features influence the model output relative to its baseline prediction.
-
----
-
-## Drift Monitoring
+### Drift Monitoring
 
 ```http
 GET /monitor/drift
 ```
 
-The monitoring module supports direct comparison between:
+---
+
+## API Security and Reliability
+
+### Security Headers
+
+Normal responses include:
 
 ```text
-Reference Batch
-      |
-      v
-Two-Sample KS Test
-      ^
-      |
-Current Batch
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+Referrer-Policy: no-referrer
+Permissions-Policy: camera=(), microphone=(), geolocation=()
+Cache-Control: no-store
 ```
+
+### Request Size Limit
+
+Requests larger than **64 KiB** are rejected with:
+
+```text
+413 Request Entity Too Large
+```
+
+### Rate Limiting
+
+```text
+60 requests / 60 seconds / client IP
+```
+
+Exceeded limits return:
+
+```text
+429 Too Many Requests
+Retry-After: 60
+```
+
+The current limiter is process-local and intended for single-instance/local deployment.
+
+### Sanitized Errors
+
+The API avoids returning raw internal exception strings.
+
+Examples:
+
+```text
+503 Model artifacts are unavailable.
+500 Prediction failed.
+500 Prediction explanation failed.
+503 Drift analysis artifacts are unavailable.
+500 Drift analysis failed.
+```
+
+Internal details remain in server-side logs.
+
+---
+
+## Explainability
+
+Predictions include SHAP feature-level explanations.
+
+The explainability layer:
+
+1. uses the fitted preprocessing pipeline
+2. transforms the incoming observation
+3. computes SHAP values
+4. ranks features by absolute contribution magnitude
+5. returns the top contributions
+
+The model pipeline and SHAP explainer are cached after first use.
+
+---
+
+## Drift Monitoring
 
 Each numerical feature is evaluated using:
 
 - two-sample Kolmogorov-Smirnov statistic
 - p-value
 - practical KS effect-size threshold
-- reference and current sample counts
-- reference and current means
+- sample counts
+- means
 - mean shift
-- reference and current standard deviations
+- standard deviations
 
-A feature is classified as drifted only when:
+A feature is flagged as drifted only when:
 
 ```text
 p-value < 0.05
@@ -480,33 +415,7 @@ AND
 KS statistic >= 0.08
 ```
 
-Using both statistical significance and a practical effect-size threshold avoids flagging very small distribution differences purely because of large sample sizes.
-
 ### Controlled Drift Experiment
-
-The repository also contains a deterministic drift-injection scenario for demonstration and testing.
-
-Reference and current batches are created from randomized, disjoint samples of the same source distribution. Controlled distribution shifts are then injected into:
-
-- `Torque`
-- `Tool wear`
-
-The detector correctly identifies:
-
-```text
-Torque      -> drift detected
-Tool wear   -> drift detected
-```
-
-while leaving:
-
-```text
-Air temperature      -> no drift
-Process temperature  -> no drift
-Rotational speed     -> no drift
-```
-
-Observed KS statistics in the controlled experiment:
 
 | Feature | KS Statistic | Drift |
 |---|---:|---|
@@ -516,147 +425,58 @@ Observed KS statistics in the controlled experiment:
 | **Torque** | **0.3106** | **Yes** |
 | **Tool wear** | **0.1032** | **Yes** |
 
-The synthetic scenario is intended only for reproducible demonstration and testing.
-
-For production use, the same drift functions can accept real reference and current production batches directly.
-
-Run the demo with:
+Run:
 
 ```bash
 python -m src.monitoring.drift
-```
-
-The generated report is written to:
-
-```text
-artifacts/drift_report.json
 ```
 
 ---
 
 ## MLflow Experiment Tracking
 
-Training runs are tracked with MLflow.
-
 Logged information includes:
 
-- model type
-- model hyperparameters
+- model type and hyperparameters
 - random seed
-- dataset split proportions
-- selected decision threshold
-- threshold selection metric
-- validation precision
-- validation recall
-- validation F1
-- validation ROC-AUC
-- validation PR-AUC
-- test precision
-- test recall
-- test F1
-- test ROC-AUC
-- test PR-AUC
+- split proportions
+- selected threshold
+- validation metrics
+- test metrics
 - serialized model
 - metrics artifact
 - threshold artifact
 
-The local tracking URI can be configured through:
+Configuration is environment-driven through:
 
 ```text
 MLFLOW_TRACKING_URI
-```
-
-and the experiment name through:
-
-```text
 MLFLOW_EXPERIMENT_NAME
 ```
-
-For example, a local MLflow server can be started with:
-
-```bash
-mlflow server --host 127.0.0.1 --port 5000
-```
-
-and training can then be executed with:
-
-```bash
-python -m src.training.train
-```
-
-Docker builds use a local SQLite MLflow backend so that model generation does not depend on an external tracking server.
 
 ---
 
 ## Docker
 
-The Docker image is fully reproducible from source.
-
-The build process:
-
-```text
-Python 3.11 Base Image
-        |
-        v
-Install Dependencies
-        |
-        v
-Copy Source + Dataset
-        |
-        v
-Train Production Model
-        |
-        +--> model.joblib
-        +--> metrics.json
-        +--> selected_threshold.json
-        |
-        v
-Start FastAPI
-```
-
-The repository therefore does not require a pre-generated model binary to build the production image.
-
-### Build
+Build:
 
 ```bash
 docker build -t predictive-maintenance-api .
 ```
 
-The Docker build has been validated successfully with the production training pipeline.
-
-### Run
+Run:
 
 ```bash
 docker run --rm -p 8000:8000 predictive-maintenance-api
 ```
 
-Then open:
-
-```text
-http://127.0.0.1:8000/docs
-```
-
-Health endpoint:
-
-```text
-http://127.0.0.1:8000/health
-```
-
-Validated container response:
-
-```json
-{
-  "status": "ok",
-  "model_available": true,
-  "threshold_available": true
-}
-```
+The Docker build trains the production model during image creation, so a pre-generated model binary does not need to be committed.
 
 ---
 
 ## Testing
 
-Run the complete test suite:
+Run:
 
 ```bash
 pytest -q
@@ -665,10 +485,10 @@ pytest -q
 Current result:
 
 ```text
-19 passed
+27 passed
 ```
 
-The suite covers:
+Coverage includes:
 
 ### API
 
@@ -676,29 +496,35 @@ The suite covers:
 - schema validation
 - invalid machine types
 - invalid operational values
-- successful high-risk predictions
-- below-threshold predictions
+- successful predictions
 - drift endpoint behavior
+- security headers
+- oversized request rejection
+- rate-limit enforcement
+- sanitized model-artifact failures
+- sanitized prediction failures
+- sanitized SHAP failures
+- sanitized drift failures
 
-### Training and Evaluation
+### Training / Evaluation
 
-- deterministic train/validation/test split sizes
-- preservation of class proportions
+- deterministic split sizes
+- class-proportion preservation
 - threshold selection
 - metric computation
 - production classifier type
 
-### Drift Monitoring
+### Drift
 
 - no-drift scenario
 - controlled drift detection
-- missing feature rejection
+- missing-feature rejection
 - empty-batch rejection
-- drift report persistence
+- report persistence
 
-### Dataset Validation
+### Validation
 
-- valid input dataset
+- valid dataset
 - missing-column detection
 - invalid machine-type detection
 
@@ -706,38 +532,36 @@ The suite covers:
 
 ## Continuous Integration
 
-GitHub Actions runs automatically on:
+GitHub Actions runs on:
 
 ```text
 push
 pull_request
 ```
 
-The CI pipeline performs:
+The CI pipeline:
 
 ```text
 Checkout
-   |
-   v
-Python 3.11 Setup
-   |
-   v
+  |
+  v
+Python 3.11
+  |
+  v
 Install Dependencies
-   |
-   v
+  |
+  v
 Download Dataset
-   |
-   v
-Compile Critical Python Modules
-   |
-   v
-Run 19 Tests
-   |
-   v
+  |
+  v
+Compile Critical Modules
+  |
+  v
+Run Tests
+  |
+  v
 Build Docker Image
 ```
-
-This verifies both application correctness and reproducible containerization on a clean CI environment.
 
 ---
 
@@ -758,8 +582,6 @@ This verifies both application correctness and reproducible containerization on 
 - Recall
 - F1
 - Confusion matrices
-- Validation-based model selection
-- Validation-based threshold optimization
 
 ### MLOps / Explainability
 
@@ -779,13 +601,11 @@ This verifies both application correctness and reproducible containerization on 
 - statistical-significance filtering
 - practical effect-size filtering
 
-### Deployment
+### Deployment / Quality
 
 - Docker
-
-### Testing / CI
-
 - pytest
+- Ruff
 - GitHub Actions
 
 ---
@@ -794,9 +614,7 @@ This verifies both application correctness and reproducible containerization on 
 
 The project uses the **AI4I 2020 Predictive Maintenance Dataset**.
 
-It contains industrial machine operating conditions and machine-failure labels.
-
-The production model uses:
+Production features:
 
 ```text
 Type
@@ -807,11 +625,7 @@ Torque
 Tool wear
 ```
 
-as predictive features.
-
-Identifier fields and failure-mode indicator columns are not used as model inputs.
-
-This avoids introducing target-related leakage into the feature set.
+Identifier fields and failure-mode indicator columns are excluded to avoid target-related leakage.
 
 ---
 
@@ -821,97 +635,68 @@ This avoids introducing target-related leakage into the feature set.
 
 The test set is isolated before model or threshold selection.
 
-Model comparison occurs on validation data, and the final test set is evaluated only after the model and operating threshold have been locked.
-
 ### Imbalanced Classification
 
-Machine failures represent only a small fraction of observations.
-
-For this reason, evaluation does not rely on accuracy alone.
-
-PR-AUC, recall, precision and F1 are reported alongside ROC-AUC.
+PR-AUC, recall, precision, F1, and ROC-AUC are reported instead of relying on accuracy.
 
 ### Benchmark-Driven Model Selection
 
-The production model was not chosen arbitrarily.
-
-Logistic Regression, Random Forest and HistGradientBoosting were evaluated under the same train/validation split.
-
-HistGradientBoosting achieved the highest validation PR-AUC and was selected for production.
+HistGradientBoosting was selected because it achieved the highest validation PR-AUC.
 
 ### Threshold Optimization
 
-The default probability threshold of `0.50` is not assumed to be optimal for failure detection.
-
 Candidate thresholds from `0.10` to `0.90` are evaluated on validation data.
-
-The selected threshold is persisted as an artifact and reused by the API.
 
 ### Explainability
 
-SHAP provides local feature-level explanations for individual predictions.
-
-The explainer is cached to avoid unnecessary model loading and initialization on every request.
+SHAP provides local feature-level explanations.
 
 ### Drift Detection
 
-Drift monitoring combines statistical significance with a minimum KS effect-size requirement.
-
-This reduces the risk of treating statistically detectable but operationally negligible distribution changes as meaningful drift.
+Statistical significance is combined with a minimum KS effect-size requirement.
 
 ### Reproducibility
 
-The Docker image generates the production model during the image build.
+The Docker image generates the model during build.
 
-This ensures the application can be reproduced from source without requiring a locally generated model binary to be committed to Git.
+### Configuration and Secret Hygiene
 
-### Configuration
-
-MLflow configuration is environment-driven rather than hardcoded.
-
-This allows the same training pipeline to run against different tracking backends in local development, CI, or containerized environments.
+MLflow configuration is environment-driven. The repository excludes `.env`, generated model artifacts, MLflow state, and raw data from version control.
 
 ---
 
 ## Limitations
 
-This project is a portfolio-scale ML system rather than a live industrial deployment.
-
-Current limitations include:
-
-- training and evaluation use a single public dataset
-- drift monitoring is statistical feature monitoring rather than full concept-drift detection
-- the included drift demonstration uses controlled synthetic distribution shifts
-- there is no persistent production prediction database
-- there is no automated retraining trigger
-- the API is currently deployed locally/containerized rather than to a managed cloud service
-- monitoring does not yet include alert delivery or time-series dashboards
-
-These limitations are intentionally documented to distinguish demonstrated engineering functionality from infrastructure that would be required in a real production environment.
+- Single public dataset
+- Statistical feature drift rather than full concept-drift monitoring
+- Controlled synthetic drift demo
+- No persistent production prediction database
+- No automated retraining trigger
+- Local/containerized deployment rather than managed cloud deployment
+- No alert delivery or time-series dashboards
+- Process-local rate limiter
+- No authentication or RBAC layer
 
 ---
 
 ## Future Improvements
 
-- Automated model retraining workflow
-- MLflow Model Registry integration
+- Automated model retraining
+- MLflow Model Registry
 - Production prediction logging
-- Drift-triggered retraining policies
+- Drift-triggered retraining
 - Concept-drift monitoring
 - Cloud deployment
 - Prometheus/OpenTelemetry metrics
-- Monitoring dashboards
-- Alerting
+- Dashboards and alerting
 - Hyperparameter optimization
 - Probability calibration
-- Additional ensemble models
-- Batch inference endpoint
-- Authentication and rate limiting
+- Batch inference
+- Authentication / RBAC
+- Distributed rate limiting
 
 ---
 
 ## License
 
-This project is licensed under the MIT License.
-
-See the `LICENSE` file for details.
+MIT License.

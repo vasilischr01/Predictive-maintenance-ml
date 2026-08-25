@@ -7,7 +7,6 @@ import joblib
 import pandas as pd
 import shap
 
-
 MODEL_PATH = Path("artifacts/model.joblib")
 
 

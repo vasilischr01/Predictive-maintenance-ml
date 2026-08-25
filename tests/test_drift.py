@@ -7,7 +7,6 @@ import pytest
 from src.monitoring.drift import (
     NUMERIC_FEATURES,
     build_drift_report,
-    create_simulated_production_data,
     detect_numeric_drift,
     run_drift_analysis,
 )

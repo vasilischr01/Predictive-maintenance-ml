@@ -24,7 +24,6 @@ from src.training.train import (
     TARGET,
 )
 
-
 OUTPUT_PATH = Path("artifacts/threshold_analysis.json")
 
 
