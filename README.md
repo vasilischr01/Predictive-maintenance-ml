@@ -207,7 +207,13 @@ LR / RF / HGB                               Preprocessing + HGB
 
 ## Training
 
-Run:
+Start the MLflow tracking server first:
+
+```bash
+mlflow server --host 127.0.0.1 --port 5000
+```
+
+Keep the MLflow server running, then open a second terminal and start the training pipeline:
 
 ```bash
 python -m src.training.train
