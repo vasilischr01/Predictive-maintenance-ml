@@ -615,6 +615,13 @@ Build Docker Image
 
 The project uses the **AI4I 2020 Predictive Maintenance Dataset**.
 
+The dataset is publicly available through the **UCI Machine Learning Repository**.
+
+- **Source:** UCI Machine Learning Repository
+- **DOI:** `10.24432/C5HS5C`
+- **License:** Creative Commons Attribution 4.0 International (CC BY 4.0)
+
+The dataset is synthetic and designed to reflect realistic industrial predictive-maintenance scenarios.
 Production features:
 
 ```text
