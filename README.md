@@ -8,6 +8,7 @@ The project covers the complete ML lifecycle: data validation, leakage-free trai
 
 ## Highlights
 
+- **Held-out test performance:** F1 **0.826**, ROC-AUC **0.982**, PR-AUC **0.909**, Recall **0.882**
 - Leakage-free **70/15/15 stratified train/validation/test evaluation**
 - Benchmark of **Logistic Regression, Random Forest, and HistGradientBoosting**
 - Benchmark-driven production model selection using **validation PR-AUC**
